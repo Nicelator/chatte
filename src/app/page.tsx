@@ -49,12 +49,12 @@ export default function ChatPage() {
   const pollForMatch = useCallback((uid: string) => {
     pollRef.current = setInterval(async () => {
       const { data } = await supabase
-        .from('rooms')
-        .select('*')
-        .or(`user_a.eq.${uid},user_b.eq.${uid}`)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
+  .from('rooms')
+  .select('*')
+  .or(`user_a.eq.${uid},user_b.eq.${uid}`)
+  .order('created_at', { ascending: false })
+  .limit(1)
+  .maybeSingle()
       if (data) {
         clearInterval(pollRef.current!)
         setRoom(data)
