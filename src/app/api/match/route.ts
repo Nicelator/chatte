@@ -14,26 +14,20 @@ export async function POST(req: NextRequest) {
     wants: Gender
   }
 
+  // Remove stale entry
   await supabase.from('waiting_users').delete().eq('user_id', user_id)
 
-  const matchQuery = supabase
+  // Find ANY other waiting user (no gender filter for now)
+  const { data: candidates } = await supabase
     .from('waiting_users')
     .select('*')
     .neq('user_id', user_id)
     .order('joined_at', { ascending: true })
     .limit(1)
 
-  if (wants !== 'any') {
-    matchQuery.eq('gender', wants)
-  }
+  if (candidates && candidates.length > 0) {
+    const match = candidates[0]
 
-  const { data: candidates } = await matchQuery
-
-  const match = candidates?.find(c =>
-    c.wants === 'any' || c.wants === gender
-  )
-
-  if (match) {
     const { data: room, error } = await supabase
       .from('rooms')
       .insert({ user_a: match.user_id, user_b: user_id })
@@ -47,6 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ matched: true, room })
   }
 
+  // Join queue
   const { error: insertError } = await supabase
     .from('waiting_users')
     .insert({ user_id, gender, wants })
