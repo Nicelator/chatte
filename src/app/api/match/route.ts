@@ -14,10 +14,8 @@ export async function POST(req: NextRequest) {
     wants: Gender
   }
 
-  // Remove stale entry
   await supabase.from('waiting_users').delete().eq('user_id', user_id)
 
-  // Find ANY other waiting user (no gender filter for now)
   const { data: candidates } = await supabase
     .from('waiting_users')
     .select('*')
@@ -41,7 +39,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ matched: true, room })
   }
 
-  // Join queue
   const { error: insertError } = await supabase
     .from('waiting_users')
     .insert({ user_id, gender, wants })
