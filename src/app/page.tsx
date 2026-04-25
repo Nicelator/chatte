@@ -40,6 +40,13 @@ export default function ChatPage() {
     onPeerDisconnected,
   })
 
+  // Attach stream to local video whenever stream or state changes
+  useEffect(() => {
+    if (localStream && localVideoRef.current) {
+      localVideoRef.current.srcObject = localStream
+    }
+  }, [localStream, state])
+
   const requestPermission = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -47,7 +54,6 @@ export default function ChatPage() {
         audio: true
       })
       setLocalStream(stream)
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream
       return stream
     } catch (err) {
       const error = err as Error
@@ -137,6 +143,8 @@ export default function ChatPage() {
       localStream?.getTracks().forEach(t => t.stop())
     }
   }, [localStream])
+
+  const inChat = state === 'searching' || state === 'connected' || state === 'disconnected'
 
   return (
     <>
@@ -239,10 +247,11 @@ export default function ChatPage() {
               chatte<span style={{ color: '#8b5cf6' }}>.</span>
             </span>
           </div>
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.25)', letterSpacing: '1.5px', textTransform: 'uppercase' }}>
-            Video Chat
-          </span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.25)', letterSpacing: '1.5px', textTransform: 'uppercase' }}>Video Chat</span>
         </header>
+
+        {/* Always-mounted hidden local video — keeps ref alive across state changes */}
+        <video ref={localVideoRef} autoPlay playsInline muted style={{ display: 'none' }} />
 
         {/* Lobby */}
         {state === 'lobby' && (
@@ -333,7 +342,7 @@ export default function ChatPage() {
         )}
 
         {/* Chat view */}
-        {(state === 'searching' || state === 'connected' || state === 'disconnected') && (
+        {inChat && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div style={{ flex: 1, position: 'relative', background: '#080810', overflow: 'hidden' }}>
               <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -349,8 +358,15 @@ export default function ChatPage() {
                 </div>
               )}
 
+              {/* Local video PiP — visible in chat */}
               <div style={{ position: 'absolute', bottom: 16, right: 16, width: 90, height: 120, borderRadius: 16, overflow: 'hidden', border: '2px solid rgba(139,92,246,0.4)', background: '#0e0e12', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
-                <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
+                <video
+                  autoPlay playsInline muted
+                  ref={(el) => {
+                    if (el && localStream) el.srcObject = localStream
+                  }}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }}
+                />
               </div>
 
               {state === 'connected' && (
