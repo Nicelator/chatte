@@ -4,7 +4,7 @@ import { supabase, getUserId } from '@/lib/supabase'
 import { useWebRTC } from '@/lib/useWebRTC'
 import type { Gender, Room } from '@/lib/supabase'
 
-type AppState = 'lobby' | 'searching' | 'connected' | 'disconnected' | 'error'
+type AppState = 'lobby' | 'permission' | 'searching' | 'connected' | 'disconnected' | 'error'
 
 export default function ChatPage() {
   const [state, setState] = useState<AppState>('lobby')
@@ -40,10 +40,10 @@ export default function ChatPage() {
     onPeerDisconnected,
   })
 
-  const startMedia = useCallback(async () => {
+  const requestPermission = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user' }, // always use front camera on mobile
+        video: { facingMode: 'user' },
         audio: true
       })
       setLocalStream(stream)
@@ -52,7 +52,7 @@ export default function ChatPage() {
     } catch (err) {
       const error = err as Error
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        setErrorMsg('Camera and microphone access is required. Please allow access in your browser settings and try again.')
+        setErrorMsg('Camera and microphone access was denied. Please allow access in your browser settings and try again.')
       } else if (error.name === 'NotFoundError') {
         setErrorMsg('No camera or microphone found on this device.')
       } else {
@@ -80,16 +80,12 @@ export default function ChatPage() {
     }, 1500)
   }, [])
 
-  const startChat = useCallback(async () => {
+  const handlePermissionAndStart = useCallback(async () => {
+    const stream = await requestPermission()
+    if (!stream) return
+
     setState('searching')
     setStatusMsg('Finding someone for you...')
-    setErrorMsg('')
-
-    let stream = localStream
-    if (!stream) {
-      stream = await startMedia()
-      if (!stream) return // permission denied, error state set inside startMedia
-    }
 
     const res = await fetch('/api/match', {
       method: 'POST',
@@ -103,7 +99,7 @@ export default function ChatPage() {
     } else {
       pollForMatch(userId.current)
     }
-  }, [localStream, gender, wants, startMedia, pollForMatch])
+  }, [requestPermission, gender, wants, pollForMatch])
 
   const nextStranger = useCallback(async () => {
     hangup()
@@ -189,6 +185,15 @@ export default function ChatPage() {
           font-family: 'Plus Jakarta Sans', sans-serif;
         }
         .stop-btn:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.8); }
+        .ghost-btn {
+          width: 100%; padding: 14px; border-radius: 100px;
+          background: transparent; color: rgba(255,255,255,0.4);
+          font-size: 15px; font-weight: 600;
+          border: 1.5px solid rgba(255,255,255,0.1);
+          cursor: pointer; transition: all 0.2s;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        .ghost-btn:hover { border-color: rgba(255,255,255,0.25); color: rgba(255,255,255,0.7); }
         .spinner {
           width: 36px; height: 36px;
           border: 3px solid rgba(139,92,246,0.2);
@@ -204,10 +209,29 @@ export default function ChatPage() {
           animation: pulse 2s ease infinite;
         }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .perm-icon {
+          width: 80px; height: 80px; border-radius: 24px;
+          background: rgba(139,92,246,0.12);
+          border: 1px solid rgba(139,92,246,0.25);
+          display: flex; align-items: center; justify-content: center;
+          font-size: 36px; margin: 0 auto 28px;
+        }
+        .perm-row {
+          display: flex; align-items: center; gap: 14px;
+          padding: 14px 16px; border-radius: 14px;
+          background: rgba(255,255,255,0.03);
+          border: 1px solid rgba(255,255,255,0.07);
+        }
+        .perm-dot {
+          width: 36px; height: 36px; border-radius: 10px; flex-shrink: 0;
+          background: rgba(139,92,246,0.15);
+          display: flex; align-items: center; justify-content: center; font-size: 16px;
+        }
       `}</style>
 
       <div style={{ minHeight: '100svh', background: '#0e0e12', color: '#fff', display: 'flex', flexDirection: 'column' }}>
 
+        {/* Header */}
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div className="glow-dot" />
@@ -224,14 +248,7 @@ export default function ChatPage() {
         {state === 'lobby' && (
           <div className="fade-in" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 24px 48px' }}>
             <div style={{ textAlign: 'center', marginBottom: 48 }}>
-              <div style={{
-                display: 'inline-block',
-                background: 'rgba(139,92,246,0.12)',
-                border: '1px solid rgba(139,92,246,0.25)',
-                borderRadius: 100, padding: '6px 16px',
-                fontSize: 12, fontWeight: 600, color: '#a78bfa',
-                marginBottom: 20, letterSpacing: '0.5px'
-              }}>✦ Free & Anonymous</div>
+              <div style={{ display: 'inline-block', background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.25)', borderRadius: 100, padding: '6px 16px', fontSize: 12, fontWeight: 600, color: '#a78bfa', marginBottom: 20, letterSpacing: '0.5px' }}>✦ Free & Anonymous</div>
               <h1 style={{ fontSize: 'clamp(32px, 8vw, 52px)', fontWeight: 800, lineHeight: 1.1, letterSpacing: '-1px', marginBottom: 12 }}>
                 Meet someone<br />
                 <span style={{ background: 'linear-gradient(135deg, #a78bfa, #7c3aed)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>interesting.</span>
@@ -262,8 +279,45 @@ export default function ChatPage() {
                 </div>
               </div>
 
-              <button className="start-btn" onClick={startChat}>Start Chatting ✦</button>
+              <button className="start-btn" onClick={() => setState('permission')}>Start Chatting ✦</button>
               <p style={{ textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.18)', fontWeight: 500 }}>By continuing you agree to our terms · 18+ only</p>
+            </div>
+          </div>
+        )}
+
+        {/* Permission screen */}
+        {state === 'permission' && (
+          <div className="fade-in" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 24px 48px' }}>
+            <div style={{ width: '100%', maxWidth: 360, display: 'flex', flexDirection: 'column', gap: 20 }}>
+              <div style={{ textAlign: 'center' }}>
+                <div className="perm-icon">🎥</div>
+                <h2 style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 8 }}>Allow Camera & Mic</h2>
+                <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', lineHeight: 1.6 }}>Chatte needs access to your camera and microphone to connect you with strangers.</p>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div className="perm-row">
+                  <div className="perm-dot">📷</div>
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Camera</p>
+                    <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>So others can see you</p>
+                  </div>
+                </div>
+                <div className="perm-row">
+                  <div className="perm-dot">🎙️</div>
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>Microphone</p>
+                    <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>So others can hear you</p>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 8 }}>
+                <button className="start-btn" onClick={handlePermissionAndStart}>Allow & Start Chatting</button>
+                <button className="ghost-btn" onClick={() => setState('lobby')}>Go Back</button>
+              </div>
+
+              <p style={{ textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.2)', lineHeight: 1.6 }}>Your camera is only active during a chat session. We never record or store your video.</p>
             </div>
           </div>
         )}
@@ -285,13 +339,7 @@ export default function ChatPage() {
               <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
 
               {(state === 'searching' || state === 'disconnected') && (
-                <div style={{
-                  position: 'absolute', inset: 0,
-                  background: 'rgba(14,14,18,0.92)',
-                  display: 'flex', flexDirection: 'column',
-                  alignItems: 'center', justifyContent: 'center', gap: 16,
-                  backdropFilter: 'blur(8px)'
-                }}>
+                <div style={{ position: 'absolute', inset: 0, background: 'rgba(14,14,18,0.92)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, backdropFilter: 'blur(8px)' }}>
                   {state === 'searching' && <div className="spinner" />}
                   {state === 'disconnected' && <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>👋</div>}
                   <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>{statusMsg}</p>
