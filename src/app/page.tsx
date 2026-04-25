@@ -4,7 +4,7 @@ import { supabase, getUserId } from '@/lib/supabase'
 import { useWebRTC } from '@/lib/useWebRTC'
 import type { Gender, Room } from '@/lib/supabase'
 
-type AppState = 'lobby' | 'searching' | 'connected' | 'disconnected'
+type AppState = 'lobby' | 'searching' | 'connected' | 'disconnected' | 'error'
 
 export default function ChatPage() {
   const [state, setState] = useState<AppState>('lobby')
@@ -13,6 +13,7 @@ export default function ChatPage() {
   const [room, setRoom] = useState<Room | null>(null)
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [statusMsg, setStatusMsg] = useState('')
+  const [errorMsg, setErrorMsg] = useState('')
 
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
@@ -40,21 +41,37 @@ export default function ChatPage() {
   })
 
   const startMedia = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-    setLocalStream(stream)
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream
-    return stream
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' }, // always use front camera on mobile
+        audio: true
+      })
+      setLocalStream(stream)
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream
+      return stream
+    } catch (err) {
+      const error = err as Error
+      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+        setErrorMsg('Camera and microphone access is required. Please allow access in your browser settings and try again.')
+      } else if (error.name === 'NotFoundError') {
+        setErrorMsg('No camera or microphone found on this device.')
+      } else {
+        setErrorMsg('Could not access your camera. Please check your browser settings.')
+      }
+      setState('error')
+      return null
+    }
   }, [])
 
   const pollForMatch = useCallback((uid: string) => {
     pollRef.current = setInterval(async () => {
       const { data } = await supabase
-  .from('rooms')
-  .select('*')
-  .or(`user_a.eq.${uid},user_b.eq.${uid}`)
-  .order('created_at', { ascending: false })
-  .limit(1)
-  .maybeSingle()
+        .from('rooms')
+        .select('*')
+        .or(`user_a.eq.${uid},user_b.eq.${uid}`)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
       if (data) {
         clearInterval(pollRef.current!)
         setRoom(data)
@@ -66,8 +83,14 @@ export default function ChatPage() {
   const startChat = useCallback(async () => {
     setState('searching')
     setStatusMsg('Finding someone for you...')
+    setErrorMsg('')
+
     let stream = localStream
-    if (!stream) stream = await startMedia()
+    if (!stream) {
+      stream = await startMedia()
+      if (!stream) return // permission denied, error state set inside startMedia
+    }
+
     const res = await fetch('/api/match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -131,6 +154,7 @@ export default function ChatPage() {
           border: 1.5px solid rgba(255,255,255,0.1);
           color: rgba(255,255,255,0.45); background: transparent;
           cursor: pointer; transition: all 0.2s;
+          font-family: 'Plus Jakarta Sans', sans-serif;
         }
         .pill-btn:hover { border-color: rgba(255,255,255,0.25); color: rgba(255,255,255,0.7); }
         .pill-btn.active {
@@ -196,6 +220,7 @@ export default function ChatPage() {
           </span>
         </header>
 
+        {/* Lobby */}
         {state === 'lobby' && (
           <div className="fade-in" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 24px 48px' }}>
             <div style={{ textAlign: 'center', marginBottom: 48 }}>
@@ -206,18 +231,12 @@ export default function ChatPage() {
                 borderRadius: 100, padding: '6px 16px',
                 fontSize: 12, fontWeight: 600, color: '#a78bfa',
                 marginBottom: 20, letterSpacing: '0.5px'
-              }}>
-                ✦ Free & Anonymous
-              </div>
+              }}>✦ Free & Anonymous</div>
               <h1 style={{ fontSize: 'clamp(32px, 8vw, 52px)', fontWeight: 800, lineHeight: 1.1, letterSpacing: '-1px', marginBottom: 12 }}>
                 Meet someone<br />
-                <span style={{ background: 'linear-gradient(135deg, #a78bfa, #7c3aed)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-                  interesting.
-                </span>
+                <span style={{ background: 'linear-gradient(135deg, #a78bfa, #7c3aed)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>interesting.</span>
               </h1>
-              <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>
-                Random video chats with real people.
-              </p>
+              <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>Random video chats with real people.</p>
             </div>
 
             <div style={{ width: '100%', maxWidth: 380, display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -244,15 +263,23 @@ export default function ChatPage() {
               </div>
 
               <button className="start-btn" onClick={startChat}>Start Chatting ✦</button>
-
-              <p style={{ textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.18)', fontWeight: 500 }}>
-                By continuing you agree to our terms · 18+ only
-              </p>
+              <p style={{ textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.18)', fontWeight: 500 }}>By continuing you agree to our terms · 18+ only</p>
             </div>
           </div>
         )}
 
-        {state !== 'lobby' && (
+        {/* Error state */}
+        {state === 'error' && (
+          <div className="fade-in" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 20 }}>📷</div>
+            <h2 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>Camera Access Needed</h2>
+            <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.5)', maxWidth: 300, lineHeight: 1.6, marginBottom: 32 }}>{errorMsg}</p>
+            <button className="start-btn" style={{ maxWidth: 280 }} onClick={() => setState('lobby')}>Go Back</button>
+          </div>
+        )}
+
+        {/* Chat view */}
+        {(state === 'searching' || state === 'connected' || state === 'disconnected') && (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <div style={{ flex: 1, position: 'relative', background: '#080810', overflow: 'hidden' }}>
               <video ref={remoteVideoRef} autoPlay playsInline style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -266,9 +293,7 @@ export default function ChatPage() {
                   backdropFilter: 'blur(8px)'
                 }}>
                   {state === 'searching' && <div className="spinner" />}
-                  {state === 'disconnected' && (
-                    <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>👋</div>
-                  )}
+                  {state === 'disconnected' && <div style={{ width: 52, height: 52, borderRadius: '50%', background: 'rgba(139,92,246,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>👋</div>}
                   <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>{statusMsg}</p>
                   {state === 'disconnected' && (
                     <button className="next-btn" style={{ marginTop: 8, padding: '12px 32px', flex: 'none' }} onClick={nextStranger}>Find someone new</button>
@@ -276,32 +301,19 @@ export default function ChatPage() {
                 </div>
               )}
 
-              <div style={{
-                position: 'absolute', bottom: 16, right: 16,
-                width: 90, height: 120, borderRadius: 16, overflow: 'hidden',
-                border: '2px solid rgba(139,92,246,0.4)', background: '#0e0e12',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
-              }}>
+              <div style={{ position: 'absolute', bottom: 16, right: 16, width: 90, height: 120, borderRadius: 16, overflow: 'hidden', border: '2px solid rgba(139,92,246,0.4)', background: '#0e0e12', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
                 <video ref={localVideoRef} autoPlay playsInline muted style={{ width: '100%', height: '100%', objectFit: 'cover', transform: 'scaleX(-1)' }} />
               </div>
 
               {state === 'connected' && (
-                <div style={{
-                  position: 'absolute', top: 16, left: 16,
-                  background: 'rgba(14,14,18,0.75)', backdropFilter: 'blur(8px)',
-                  border: '1px solid rgba(139,92,246,0.3)', borderRadius: 100,
-                  padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6
-                }}>
+                <div style={{ position: 'absolute', top: 16, left: 16, background: 'rgba(14,14,18,0.75)', backdropFilter: 'blur(8px)', border: '1px solid rgba(139,92,246,0.3)', borderRadius: 100, padding: '6px 14px', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <div className="glow-dot" style={{ width: 6, height: 6 }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>Connected</span>
                 </div>
               )}
             </div>
 
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px',
-              background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.06)'
-            }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 20px', background: 'rgba(255,255,255,0.02)', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
               <button className="stop-btn" onClick={stopChat}>Stop</button>
               <button className="next-btn" onClick={nextStranger}>Next stranger →</button>
             </div>
